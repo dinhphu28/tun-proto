@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.tunproto</groupId>
+    <artifactId>tun-proto-parent</artifactId>
+    <version>1.0.0</version>
+  </parent>
+
+  <artifactId>tun-proto-vertx</artifactId>
+  <name>tun-proto-vertx</name>
+  <description>Embeddable Vert.x library: stand up a tun-proto reverse-TCP tunnel server in a few lines.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.tunproto</groupId>
+      <artifactId>yamux-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.vertx</groupId>
+      <artifactId>vertx-core</artifactId>
+    </dependency>
+    <!-- For mount(Router). Marked optional so downstream apps that only use
+         listen()/mount(HttpServer) do not inherit vertx-web transitively, but it
+         is on OUR compile classpath. -->
+    <dependency>
+      <groupId>io.vertx</groupId>
+      <artifactId>vertx-web</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>

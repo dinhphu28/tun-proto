@@ -17,6 +17,7 @@ Scala (Akka HTTP), Go, Rust, etc. — and interoperate with an existing client.
 | [`examples/`](./examples/) | Byte-exact framing examples: OpenRequest JSON + framed bytes, annotated yamux frames. |
 | [`conformance/`](./conformance/) | Conformance checklist, the flow-control interop test, and a sample client config. |
 | [`node/`](./node/) | Reference **Node.js server** implementation (`tun-proto-server`) — import and run, no yamux/WebSocket knowledge needed. |
+| [`java/`](./java/) | **JVM libraries** on a shared sans-IO `yamux-core`: `vertx/` (embeddable Vert.x `TunnelServer`) and `quarkus/` (config-driven Quarkus library that auto-mounts). Non-blocking; verified against the Go client. |
 
 ## Protocol at a glance
 

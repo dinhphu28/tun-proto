@@ -82,7 +82,7 @@ app.listen(8080);
 | `path` | `string` | `/tunnels` | WebSocket upgrade path. |
 | `server` | `http.Server` | — | Reuse an existing server; `close()` won't close it. |
 | `allowTarget` | `(host, port, ctx) => boolean \| Promise` | — | Egress policy (recommended). |
-| `maxStreamWindowSize` | `number` | `262144` | Per-stream window. **Do not raise** — see below. |
+| `maxStreamWindowSize` | `number` | `16777216` | Per-stream yamux window (16 MiB). Matches the Go client. |
 | `dialTimeout` | `number` | `10000` | Target connect timeout (ms). |
 | `maxSessions` | `number` | `0` (∞) | Concurrent sessions; over-limit upgrades get `503`. |
 | `maxStreams` | `number` | `0` (∞) | Concurrent proxied streams across all sessions. |
@@ -105,35 +105,44 @@ tunnel.on('stream', ({ address }) => console.log('proxying to', address));
 tunnel.on('stream-error', ({ error }) => console.warn(error.message));
 ```
 
-## Throughput & the window limit
-
-`maxStreamWindowSize` defaults to **256 KiB** and you should leave it there.
+## Flow control & the bundled yamux-js patch
 
 This library builds on [`yamux-js`](https://www.npmjs.com/package/yamux-js)
-`0.2.1`, which has a flow-control bug: it discards the window delta carried on
-SYN-flagged `WINDOW_UPDATE` frames, and only emits a fresh `WINDOW_UPDATE` once
-half of `maxStreamWindowSize` has been consumed. With a large window those two
-behaviours **deadlock** any transfer between 256 KiB and `maxWindow / 2`. Pinning
-the window to the 256 KiB yamux initial makes the throttle fire on every window,
-so transfers of any size flow correctly (verified up to multi-MiB in the test
-suite).
+`0.2.1`, which has a flow-control bug: `handleStreamMessage` **discards the
+window delta carried on SYN-flagged `WINDOW_UPDATE` frames**. A peer that
+advertises a large initial receive window on SYN — which HashiCorp yamux and the
+Go tunnel client do (~16 MiB) — therefore leaves this server's send window stuck
+at the 256 KiB yamux initial. Because that peer won't re-advertise until it has
+consumed ~half its window, any bulk send larger than 256 KiB **deadlocks**. This
+was reproduced against the real Go client: a 4 MiB download stalled at exactly
+262144 bytes.
 
-The practical effect: in-flight unacknowledged data per stream is bounded to
-256 KiB, so single-stream throughput is roughly `256 KiB / RTT`. Over the
-low-latency WebSocket path this is fine; over a high-RTT link it caps bulk
-throughput. When talking to the **Go** reference client (whose flow control is
-correct), the download direction (server→client) can still grow because the Go
-side replenishes the window promptly.
-
-Raising `maxStreamWindowSize` above 256 KiB logs a warning and will reintroduce
-the deadlock until `yamux-js` is fixed or replaced.
+The library applies a small pinned runtime patch
+([`src/yamux-patch.js`](./src/yamux-patch.js)) that honors the SYN window delta —
+the one line upstream is missing. With it, the full **16 MiB** window works and
+transfers stream at line rate. The patch is scoped to `yamux-js@0.2.1` (pinned in
+`package.json`); revisit it if that version changes or upstream fixes the bug.
 
 ## Compatibility
 
-`yamux-js` is interoperable with HashiCorp yamux, so this server works with the
-Go `tunnel-client`. Validate an end-to-end deployment with the
-[conformance interop test](../conformance/interop-test.md) — especially the
-bulk-transfer case.
+`yamux-js` (with the patch above) is interoperable with HashiCorp yamux, so this
+server works with the Go `tunnel-client`. This is **verified**, not assumed — see
+[Interop testing](#interop-testing). Also validate your own end-to-end deployment
+with the [conformance interop test](../conformance/interop-test.md).
+
+## Interop testing
+
+`interop.manual.js` drives the **real Go `tunnel-client` binary** against this
+server end-to-end (echo, a multi-MiB download, and concurrent multiplexed
+streams). It is not part of `npm test` because it needs the Go binary; point it
+at one and run it directly:
+
+```bash
+GO_TUNNEL_CLIENT=/path/to/tunnel-client-linux-amd64 node interop.manual.js
+```
+
+It exits non-zero on any failure, so it is CI-friendly wherever the binary is
+available.
 
 ## Testing
 

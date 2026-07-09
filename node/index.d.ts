@@ -33,13 +33,7 @@ export interface TunnelServerOptions {
     ctx: { remoteAddress?: string }
   ) => boolean | Promise<boolean>;
 
-  /**
-   * Max per-stream yamux window in bytes. Default (and recommended): 262144
-   * (256 KiB). Raising it above 256 KiB currently DEADLOCKS large transfers
-   * because yamux-js 0.2.1 mishandles window-update flow control — see the
-   * README section "Throughput & the window limit". Leave unset unless you have
-   * verified a fixed yamux-js.
-   */
+  /** Max per-stream yamux window in bytes. Default: 16 MiB (matches the reference Go client). */
   maxStreamWindowSize?: number;
   /** Target dial timeout in ms. Default: 10000. */
   dialTimeout?: number;

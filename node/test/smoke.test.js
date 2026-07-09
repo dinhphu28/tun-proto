@@ -45,9 +45,7 @@ function connectClient(port, apiKey = 'test-key') {
       const transport = createWebSocketStream(ws);
       const client = new YamuxClient({
         enableKeepAlive: false,
-        // Must match the server's window (256 KiB). yamux-js deadlocks large
-        // transfers if the two peers disagree on a large window — see README.
-        maxStreamWindowSize: 256 * 1024,
+        maxStreamWindowSize: 16 * 1024 * 1024,
       });
       client.on('error', () => {});
       transport.on('error', () => {});

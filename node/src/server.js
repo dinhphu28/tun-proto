@@ -6,19 +6,20 @@ const { EventEmitter } = require('events');
 const { WebSocketServer, createWebSocketStream } = require('ws');
 const { Server: YamuxServer } = require('yamux-js');
 
+const { applyYamuxFlowControlFix } = require('./yamux-patch');
 const { readOpenRequest } = require('./open-request');
 const { parseAddress } = require('./address');
 const { splice, closeYamuxStream } = require('./splice');
 
+// Fix yamux-js's SYN window-update handling before any Session is created,
+// otherwise bulk transfers deadlock against the Go client. See yamux-patch.js.
+applyYamuxFlowControlFix();
+
 const DEFAULT_PATH = '/tunnels';
-// The yamux-js initial per-stream window. We default to exactly this value on
-// purpose. yamux-js 0.2.1 discards the window delta carried on SYN-flagged
-// WINDOW_UPDATE frames and only emits a fresh WINDOW_UPDATE once maxWindow/2
-// bytes have been consumed; together those two behaviours DEADLOCK any transfer
-// between 256 KiB and maxWindow/2 when maxWindow is large. Pinning maxWindow to
-// the 256 KiB initial makes the throttle fire on every window and keeps
-// transfers flowing. See README "Throughput & the window limit".
-const DEFAULT_WINDOW = 256 * 1024; // 256 KiB
+// Matches the reference Go client's MaxStreamWindowSize so large transfers (e.g.
+// Postgres result sets) are not serialised into many flow-control round-trips.
+// Safe to use because yamux-patch.js repairs yamux-js's window handling.
+const DEFAULT_WINDOW = 16 * 1024 * 1024; // 16 MiB
 const DEFAULT_DIAL_TIMEOUT = 10_000; // ms
 
 /**
@@ -35,12 +36,6 @@ class TunnelServer extends EventEmitter {
 
     this._path = options.path || DEFAULT_PATH;
     this._window = options.maxStreamWindowSize || DEFAULT_WINDOW;
-    if (this._window > DEFAULT_WINDOW) {
-      console.warn(
-        `tun-proto: maxStreamWindowSize=${this._window} exceeds the 256 KiB safe value; ` +
-          'yamux-js 0.2.1 can deadlock transfers above the initial window. See README.'
-      );
-    }
     this._dialTimeout = options.dialTimeout || DEFAULT_DIAL_TIMEOUT;
     this._maxSessions = options.maxSessions || 0;
     this._maxStreams = options.maxStreams || 0;
@@ -156,8 +151,13 @@ class TunnelServer extends EventEmitter {
     // side in flowing mode ("data" events) keeps the readable near-empty so
     // _transform is never starved. yamux's own flow control still bounds the
     // in-flight bytes, so this does not buffer without limit.
-    transport.on('data', (chunk) => yamux.write(chunk));
+    const fl = process.env.TUN_PROTO_FRAMELOG ? makeFrameLog() : null;
+    transport.on('data', (chunk) => {
+      if (fl) fl('IN ', chunk);
+      yamux.write(chunk);
+    });
     yamux.on('data', (chunk) => {
+      if (fl) fl('OUT', chunk);
       try {
         transport.write(chunk);
       } catch {
@@ -274,6 +274,25 @@ function buildAuth(options) {
   throw new Error(
     'tun-proto: provide exactly one of { apiKeys, authenticate, authDisabled } in options'
   );
+}
+
+// makeFrameLog returns a best-effort yamux frame-header decoder for debugging
+// (gated by TUN_PROTO_FRAMELOG). Assumes chunks begin on a frame boundary.
+function makeFrameLog() {
+  const TYPES = ['DATA', 'WINDOW_UPDATE', 'PING', 'GO_AWAY'];
+  return (dir, buf) => {
+    let off = 0;
+    let n = 0;
+    while (off + 12 <= buf.length && n < 8) {
+      const type = buf[off + 1];
+      const flags = buf.readUInt16BE(off + 2);
+      const sid = buf.readUInt32BE(off + 4);
+      const len = buf.readUInt32BE(off + 8);
+      console.log(`  ${dir} type=${TYPES[type] || type} flags=${flags} sid=${sid} len=${len}`);
+      off += 12 + (type === 0 ? len : 0); // only DATA has a payload
+      n++;
+    }
+  };
 }
 
 function bearer(req) {

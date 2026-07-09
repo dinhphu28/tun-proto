@@ -244,9 +244,17 @@ public final class YamuxSession {
         if ((sid & 1L) == 0L) {
             throw new ProtocolException("even inbound SYN: " + sid, YamuxConstants.GOAWAY_PROTO);
         }
-        if (sid <= lastAcceptedOdd) {
-            throw new ProtocolException("stream id not strictly increasing: " + sid, YamuxConstants.GOAWAY_PROTO);
-        }
+        // NOTE: we intentionally do NOT reject an odd id that is <= the highest id
+        // accepted so far. Real hashicorp-yamux clients (the Go tunnel client) assign
+        // stream ids from a monotonic counter under lock but emit each SYN lazily on
+        // the stream's first Write, from that caller's goroutine. Under concurrent
+        // OpenStream the SYN FRAMES therefore reach the wire out of id order (e.g.
+        // SYN(3) before SYN(1)), even though ids are assigned monotonically. A strict
+        // "sid must exceed the highest accepted id" check rejected those valid
+        // concurrent opens and broke interop (SPEC conformance requires N>=8
+        // concurrent streams). The streams-map lookup above already returns the
+        // existing stream for a live duplicate, so any not-currently-tracked odd id is
+        // a legitimate new stream. Ids stay odd-only and are never reused per session.
         if (goingAway) {
             emitReset(sid);
             return null;
@@ -260,7 +268,9 @@ public final class YamuxSession {
         s.sendWindow = config.initialWindow; // SYN delta bumps sendWindow next
         s.pendingAck = true;
         streams.put(sid, s);
-        lastAcceptedOdd = sid;
+        if (sid > lastAcceptedOdd) {
+            lastAcceptedOdd = sid;
+        }
         active++;
         onStream.onStream(s);
         return s;

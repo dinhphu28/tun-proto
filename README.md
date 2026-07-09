@@ -18,6 +18,7 @@ Scala (Akka HTTP), Go, Rust, etc. — and interoperate with an existing client.
 | [`conformance/`](./conformance/) | Conformance checklist, the flow-control interop test, and a sample client config. |
 | [`node/`](./node/) | Reference **Node.js server** implementation (`tun-proto-server`) — import and run, no yamux/WebSocket knowledge needed. |
 | [`java/`](./java/) | **JVM libraries** on a shared sans-IO `yamux-core`: `vertx/` (embeddable Vert.x `TunnelServer`) and `quarkus/` (config-driven Quarkus library that auto-mounts). Non-blocking; verified against the Go client. |
+| [`scala/`](./scala/) | **Scala 2.13 + Akka HTTP** library reusing `yamux-core`. `Future`/`ExecutionContext` on Java 21 virtual threads. Verified against the Go client. |
 
 ## Protocol at a glance
 

@@ -16,6 +16,11 @@ target/
 .project
 .classpath
 .factorypath
+# sbt / Scala tooling
+.bsp/
+.bloop/
+.metals/
+project/project/
 
 # Scratch
 /tmp/

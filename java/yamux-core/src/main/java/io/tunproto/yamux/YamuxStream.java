@@ -112,6 +112,15 @@ public final class YamuxStream {
     /**
      * RECEIVER replenish (lesson #2). Call AFTER the target has accepted {@code n}
      * bytes, so a slow target throttles our WINDOW_UPDATE emission (OOM guard).
+     *
+     * <p>The replenish threshold is a fraction of the INITIAL (protocol) window,
+     * NOT of {@code maxStreamWindow}. The peer's send window starts at the 256 KiB
+     * yamux initial and only grows when we send WINDOW_UPDATEs; if we waited until
+     * {@code maxStreamWindow/2} (e.g. 8 MiB) had been consumed before replenishing,
+     * any upload between 256 KiB and that threshold would DEADLOCK — the peer
+     * exhausts its 256 KiB window and we never grow it back. (Confirmed against the
+     * real Go client: a 4 MiB upload stalled with a 16 MiB window.) Replenishing at
+     * initialWindow/2 keeps the peer's window non-zero for uploads of any size.</p>
      */
     public void consumed(int n) {
         if (n <= 0) {
@@ -119,7 +128,8 @@ public final class YamuxStream {
         }
         recvConsumed += n;
         int delta = recvConsumed;
-        if (delta > 0 && (delta >= config.maxStreamWindow / 2 || pendingAck)) {
+        int threshold = Math.max(1, config.initialWindow / 2);
+        if (delta > 0 && (delta >= threshold || pendingAck)) {
             int fl = 0;
             if (pendingAck) {
                 fl |= Flags.ACK;

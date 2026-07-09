@@ -5,6 +5,11 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Node
+node_modules/
+npm-debug.log*
+
 # Scratch
 /tmp/
 *.log
+debug*.js

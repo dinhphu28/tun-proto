@@ -1,0 +1,32 @@
+{
+  "name": "tun-proto-server",
+  "version": "1.0.0",
+  "description": "Drop-in Node.js server for the tun-proto reverse TCP tunnel (yamux over WebSocket). Import it, point it at your network, done — no yamux or WebSocket knowledge required.",
+  "main": "src/index.js",
+  "types": "index.d.ts",
+  "files": [
+    "src/",
+    "index.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "tunnel",
+    "reverse-tunnel",
+    "yamux",
+    "tcp",
+    "websocket",
+    "tun-proto",
+    "port-forward"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "yamux-js": "^0.2.1"
+  }
+}

@@ -16,6 +16,7 @@ Scala (Akka HTTP), Go, Rust, etc. — and interoperate with an existing client.
 | [`SPEC.md`](./SPEC.md) | The normative protocol specification (RFC 2119). |
 | [`examples/`](./examples/) | Byte-exact framing examples: OpenRequest JSON + framed bytes, annotated yamux frames. |
 | [`conformance/`](./conformance/) | Conformance checklist, the flow-control interop test, and a sample client config. |
+| [`node/`](./node/) | Reference **Node.js server** implementation (`tun-proto-server`) — import and run, no yamux/WebSocket knowledge needed. |
 
 ## Protocol at a glance
 

@@ -11,9 +11,11 @@ Scala (Akka HTTP), Go, Rust, etc. — and interoperate with an existing client.
 
 ## What's here
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
 | [`SPEC.md`](./SPEC.md) | The normative protocol specification (RFC 2119). |
+| [`examples/`](./examples/) | Byte-exact framing examples: OpenRequest JSON + framed bytes, annotated yamux frames. |
+| [`conformance/`](./conformance/) | Conformance checklist, the flow-control interop test, and a sample client config. |
 
 ## Protocol at a glance
 

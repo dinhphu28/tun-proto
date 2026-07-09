@@ -1,0 +1,7 @@
+{
+  "server_url": "wss://candidate.example.com/tunnels",
+  "api_key": "replace-with-api-key",
+  "forwards": [
+    { "local": "127.0.0.1:15432", "remote": "10.0.0.5:5432" }
+  ]
+}

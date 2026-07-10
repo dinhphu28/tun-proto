@@ -40,12 +40,12 @@ An alternative implementation described by this document is a **Server**. It
 
 ```
 ┌───────────────────────────────────────────────┐
-│ 3. Application framing — OpenRequest (§5)      │  per yamux stream
+│ 3. Application framing — OpenRequest (§5)     │  per yamux stream
 ├───────────────────────────────────────────────┤
-│ 2. Multiplexing — yamux profile (§4)           │  per transport connection
+│ 2. Multiplexing — yamux profile (§4)          │  per transport connection
 ├───────────────────────────────────────────────┤
-│ 1a. Transport — WebSocket (§3)                 │  OR
-│ 1b. Transport — HTTP dual-channel (Appendix A) │
+│ 1a. Transport — WebSocket (§3)                │  OR
+│ 1b. Transport — HTTP dual-channel (Appendix A)│
 └───────────────────────────────────────────────┘
 ```
 

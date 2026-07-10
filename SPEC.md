@@ -211,9 +211,13 @@ Flags are a bitmask and **MAY** be combined (e.g. `SYN` on the first data frame)
 - **Window auto-tuning (profile).** HashiCorp yamux grows a stream's receive
   window beyond the 256 KiB initial value, up to a configured maximum, when it
   observes fast consumption. The reference client/server set this maximum
-  (`MaxStreamWindowSize`) to **16 MiB** (see §7). A conformant server:
+  (`MaxStreamWindowSize`) **per-transport** (see §7): **16 MiB** on the HTTP
+  dual-channel path, where each Window Update costs a full HTTP round-trip and a
+  large window is needed to keep bulk transfers flowing, and **256 KiB** on the
+  WebSocket path, where the low RTT makes a large window unnecessary and a small
+  one keeps per-stream memory low. A conformant server:
   - **MUST** honor Window Updates it receives (allowing the peer's window to grow
-    up to at least 16 MiB), and
+    up to the peer's configured maximum), and
   - **SHOULD** itself send Window Updates as it drains stream data so bulk
     transfers (e.g. large SQL result sets) are not serialized into many
     round-trips. A server that never grows its receive window past 256 KiB is
@@ -329,8 +333,10 @@ behavior.
 |-------|---------|-----------------|
 | Max concurrent sessions (WS + HTTP) | `TUNNEL_MAX_SESSIONS` (0 = unlimited) | HTTP `503 Service Unavailable` at connect time. |
 | Max concurrent proxied streams (all sessions) | `TUNNEL_MAX_STREAMS` (0 = unlimited) | Accept then immediately close the over-limit stream. |
-| Per-stream receive window | `TUNNEL_STREAM_WINDOW` (default 16 MiB, min 256 KiB) | Governs yamux `MaxStreamWindowSize` (§4.5). |
+| Per-stream receive window — HTTP dual-channel | `TUNNEL_STREAM_WINDOW` (default 16 MiB, min 256 KiB) | Governs yamux `MaxStreamWindowSize` (§4.5) on the HTTP path; large to amortize round-trips. |
+| Per-stream receive window — WebSocket | `TUNNEL_WS_STREAM_WINDOW` (default 256 KiB, min 256 KiB) | Governs yamux `MaxStreamWindowSize` (§4.5) on the WS path; small to bound per-stream memory. |
 | Per-direction throughput cap | `TUNNEL_STREAM_RATE` (0 = unlimited) | Token-bucket rate limit per stream direction. |
+| HTTP dual-channel enabled | `TUNNEL_HTTP_FALLBACK` (default **disabled**; `true`/`1` to enable) | When disabled, the server replies `404` to `/tunnels/down` and `/tunnels/up` (§A.2/§A.3) and the client will not use the HTTP transport. Enable on **both** ends to use it. |
 
 Rejections **MUST** be applied at connect/stream-open time so the client can back
 off; the client retries with exponential backoff and jitter.
@@ -344,14 +350,16 @@ restart therefore sees clients reconnect spread over time rather than in lockste
 ## 7. Configuration constants (normative for interop)
 
 Both endpoints **MUST** agree on the framing constants; the tunable window is
-negotiated dynamically via Window Updates but both ends should target the same
-maximum.
+negotiated dynamically via Window Updates. The maximum is **per-transport**: the
+two ends of a given session SHOULD target the same maximum for that transport
+(large on the HTTP dual-channel path, small on WebSocket — see §4.5).
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | yamux Version | `0` | §4.1 |
 | Initial stream window | 256 KiB (262144 B) | Fixed by yamux (§4.5) |
-| Max stream window | 16 MiB (default) | `TUNNEL_STREAM_WINDOW`; both ends SHOULD match |
+| Max stream window — HTTP dual-channel | 16 MiB (default) | `TUNNEL_STREAM_WINDOW`; large window amortizes the HTTP round-trip |
+| Max stream window — WebSocket | 256 KiB (default) | `TUNNEL_WS_STREAM_WINDOW`; small window bounds per-stream memory on the low-RTT path |
 | Keepalive interval | 30 s | Ping (§4.6) |
 | Connection write timeout | 30 s | Local send deadline; not on the wire |
 | OpenRequest max size | 4096 bytes | §5.2 |
@@ -371,7 +379,8 @@ A candidate server is conformant if, driven by the reference Go client
 - [ ] **yamux server** — accepts odd-numbered SYN streams, replies ACK; never
       initiates streams; treats an even inbound SYN as a protocol error.
 - [ ] **Flow control** — advertises a 256 KiB initial window; honors inbound
-      Window Updates up to ≥16 MiB; sends Window Updates as it drains.
+      Window Updates up to the peer's configured maximum (16 MiB on HTTP,
+      256 KiB on WebSocket); sends Window Updates as it drains.
 - [ ] **Keepalive** — answers Ping(SYN) with Ping(ACK) echoing the opaque value.
 - [ ] **OpenRequest** — reads the 4-byte length + JSON; enforces `network == tcp`,
       non-empty `address`, size ≤ 4096; rejects malformed requests.
@@ -405,6 +414,12 @@ the exact same stream yamux runs on in §3 — using two half-duplex HTTP channe
 It has higher per-frame latency (each UP batch is a full HTTP round-trip) and is a
 fallback, not the preferred path. A server **MAY** omit it if its gateway permits
 WebSocket.
+
+In the reference deployment this transport is **disabled by default** and gated by
+`TUNNEL_HTTP_FALLBACK` (§6): the server serves `/tunnels/down` and `/tunnels/up`
+(§A.2/§A.3) only when it is enabled, replying `404` otherwise, and the reference
+client will not fall back to (or directly dial) HTTP unless it is enabled. Enable
+the flag on **both** ends for a gateway that blocks WebSocket.
 
 Upward of this layer everything is identical: the reassembled byte stream carries
 yamux (§4), which carries OpenRequests (§5). Only the bottom byte-transport
@@ -482,10 +497,13 @@ yamux runs on this composite stream unchanged.
 
 The reference client picks a transport from the configured `server_url` scheme:
 
+HTTP dual-channel is only used when `TUNNEL_HTTP_FALLBACK` is enabled (§6);
+disabled by default.
+
 | Scheme | Behavior |
 |--------|----------|
-| `wss://` / `ws://` | Try WebSocket (§3) first; on **any** failure (e.g. `426` from a WS-blocking proxy) fall back to HTTP dual-channel. Re-evaluated on every reconnect, so WS resumes automatically if the gateway is later fixed. |
-| `https://` / `http://` | Use HTTP dual-channel directly; no WebSocket attempt. |
+| `wss://` / `ws://` | Try WebSocket (§3) first. On **any** failure (e.g. `426` from a WS-blocking proxy): fall back to HTTP dual-channel **if** `TUNNEL_HTTP_FALLBACK` is enabled; otherwise return the error and retry WebSocket with backoff. Re-evaluated on every reconnect, so WS resumes automatically if the gateway is later fixed. |
+| `https://` / `http://` | Use HTTP dual-channel directly; no WebSocket attempt. Requires `TUNNEL_HTTP_FALLBACK` enabled — otherwise the client errors at startup. |
 
 ---
 
@@ -511,3 +529,51 @@ The reference client is configured with JSON:
   tunnels accepted connections to `remote` (the OpenRequest `address`, §5).
   Listeners survive tunnel reconnects; only in-flight tunneled connections are
   lost on a drop.
+
+---
+
+## Appendix C — WebSocket gateway relay (informative)
+
+This appendix describes a deployment topology, not a new wire protocol. It exists
+for environments where only a single edge component is permitted to accept
+WebSocket upgrades (e.g. an APISIX-fronted Go gateway in the reference
+deployment), while the actual tunnel **server** (§1.1) runs deeper in the network
+and is reachable only over plain TCP.
+
+```
+Client ──ws://──► Gateway (terminates WS, authenticates) ──raw TCP──► Upstream server
+        WebSocket        edge auth (§2), no yamux parsing        yamux directly on socket
+```
+
+### C.1 Role of the gateway
+
+- The gateway is the **only** component that accepts a WebSocket upgrade
+  (§3). It terminates the client WebSocket and authenticates the Bearer key (§2)
+  at the edge, exactly as a §3 server would.
+- After authenticating, the gateway relays the reassembled binary byte stream
+  **unchanged** to an internal endpoint over a raw TCP connection. It is a
+  transparent byte pipe: it **MUST NOT** parse, buffer per-frame, or terminate
+  yamux (§4) — the yamux session runs **end-to-end** between the client and the
+  internal upstream server. The wire protocol above the transport is therefore
+  identical to §3/§4/§5; only the bottom transport is split into two hops.
+- Because the gateway already authenticated the client, the internal endpoint
+  **MAY** trust the network for authentication and omit its own Bearer check.
+
+### C.2 Internal endpoint (upstream server)
+
+- The internal endpoint **MAY** be **plain TCP**: yamux (§4) runs directly on the
+  accepted socket, with **no** WebSocket framing. The upstream accepts a TCP
+  connection and immediately acts as the yamux **server** (§1.1) on it.
+- Both ends of yamux **MUST** use the **WebSocket** window profile — the 256 KiB
+  max stream window (§7) — since from yamux's perspective the session is the
+  low-RTT WebSocket session that the client negotiated; the gateway's TCP hop is
+  invisible to flow control.
+
+### C.3 Lifecycle
+
+1. Client dials the gateway's WebSocket endpoint with the Bearer header.
+2. Gateway authenticates (§2), upgrades the WebSocket, and dials the internal
+   upstream over TCP.
+3. Gateway splices bytes transparently in both directions until either side
+   closes, then tears down both hops. A dropped WebSocket closes the upstream TCP
+   connection (and thus the yamux session and all streams), and vice versa.

@@ -541,8 +541,9 @@ deployment), while the actual tunnel **server** (§1.1) runs deeper in the netwo
 and is reachable only over plain TCP.
 
 ```
-Client ──ws://──► Gateway (terminates WS, authenticates) ──raw TCP──► Upstream server
-        WebSocket        edge auth (§2), no yamux parsing        yamux directly on socket
+Client ──ws://──► Gateway (terminates WS, authenticates,   ──raw TCP──► Upstream server
+    /relay/<name>    resolves <name> via registry)                     yamux directly on socket
+        WebSocket    edge auth (§2), no yamux parsing
 ```
 
 ### C.1 Role of the gateway
@@ -550,8 +551,15 @@ Client ──ws://──► Gateway (terminates WS, authenticates) ──raw TCP
 - The gateway is the **only** component that accepts a WebSocket upgrade
   (§3). It terminates the client WebSocket and authenticates the Bearer key (§2)
   at the edge, exactly as a §3 server would.
-- After authenticating, the gateway relays the reassembled binary byte stream
-  **unchanged** to an internal endpoint over a raw TCP connection. It is a
+- The gateway routes by the URL **name** (`/tunnels/relay/<name>`): it resolves
+  `<name>` to an internal address through a runtime **upstream registry**
+  (admin-managed name→address rows, DB-backed and TTL-cached). The gateway dials
+  **only** addresses from this registry and **never** a client-supplied
+  host:port, so the name-based indirection carries no SSRF risk. An unknown or
+  inactive name yields **404** and no dial occurs.
+- After authenticating and resolving, the gateway relays the reassembled binary
+  byte stream **unchanged** to the resolved endpoint over a raw TCP connection.
+  It is a
   transparent byte pipe: it **MUST NOT** parse, buffer per-frame, or terminate
   yamux (§4) — the yamux session runs **end-to-end** between the client and the
   internal upstream server. The wire protocol above the transport is therefore
